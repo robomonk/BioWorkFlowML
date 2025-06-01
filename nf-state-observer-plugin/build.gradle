@@ -1,0 +1,121 @@
+plugins {
+    id 'groovy'
+    id 'java-library' // or 'java' if not exporting API
+    id "com.google.protobuf" version "0.9.4" // For compiling .proto files
+}
+
+group = 'com.yourorg.bioflowml' // Change to your group ID
+version = '0.1.0-SNAPSHOT' // Initial version
+
+repositories {
+    mavenCentral()
+    mavenLocal() // Good for local development
+    // You might need jcenter() or other repositories depending on Nextflow version
+    // jcenter()
+}
+
+// Define versions for dependencies
+def nextflowVersion = '23.10.1' // Use the Nextflow version you are targeting
+def pf4jVersion = '3.6.0'     // PF4J version used by your Nextflow version
+def grpcVersion = '1.62.2'    // Latest stable gRPC version (check for updates)
+def protobufVersion = '3.25.3' // Protobuf Java version (check for updates)
+
+dependencies {
+    // Nextflow core dependency for plugin development
+    compileOnly "io.nextflow:nextflow:${nextflowVersion}"
+    // PF4J (Plugin Framework for Java) - Nextflow uses this
+    compileOnly "org.pf4j:pf4j:${pf4jVersion}"
+
+    // gRPC dependencies
+    implementation "io.grpc:grpc-protobuf:${grpcVersion}"
+    implementation "io.grpc:grpc-stub:${grpcVersion}"
+    implementation "io.grpc:grpc-netty-shaded:${grpcVersion}" // Or grpc-okhttp
+    compileOnly "javax.annotation:javax.annotation-api:1.3.2" // For generated gRPC code
+
+    // Protobuf Java library (for message objects)
+    implementation "com.google.protobuf:protobuf-java:${protobufVersion}"
+    implementation "com.google.protobuf:protobuf-java-util:${protobufVersion}" // For JsonFormat, etc.
+
+    // Groovy
+    implementation platform("org.codehaus.groovy:groovy-bom:3.0.19") // Groovy BOM for Nextflow compatibility
+    implementation "org.codehaus.groovy:groovy"
+
+    // Testing dependencies (add later when writing tests)
+    testImplementation "org.spockframework:spock-core:2.3-groovy-3.0" // Matched to Groovy 3.x
+    testImplementation "cglib:cglib-nodep:3.3.0" // Spock needs this
+    testImplementation "org.objenesis:objenesis:3.3" // Spock needs this
+    testImplementation "org.pf4j:pf4j:${pf4jVersion}" // PF4J for tests
+}
+
+protobuf {
+    protoc {
+        artifact = "com.google.protobuf:protoc:${protobufVersion}"
+    }
+    plugins {
+        grpc {
+            artifact = "io.grpc:protoc-gen-grpc-java:${grpcVersion}"
+        }
+    }
+    generateProtoTasks {
+        all().each { task ->
+            task.plugins {
+                grpc {}
+            }
+            // Optional: Configure output directory for generated Java sources
+            // task.generatedFilesBaseDir = "$projectDir/src/generated/java"
+        }
+    }
+    // By default, generated sources are placed in build/generated/source/proto/main/java and build/generated/source/proto/main/grpc
+    // These are automatically added to the source sets by the protobuf plugin.
+}
+
+// Ensure Groovy compilation happens after Protobuf generation
+compileGroovy.dependsOn generateProto
+
+// Explicitly add generated sources to main java source set
+sourceSets {
+    main {
+        java {
+            srcDir "$buildDir/generated/source/proto/main/java"
+            srcDir "$buildDir/generated/source/proto/main/grpc"
+        }
+    }
+}
+
+// Configure the JAR manifest for the plugin
+jar {
+    manifest {
+        attributes(
+                'Plugin-Class': 'nextflow.plugin.nfstateobserver.NfStateObserver', // Your main plugin class
+                'Plugin-Id': rootProject.name,
+                'Plugin-Version': project.version,
+                'Plugin-Provider': 'Your Name/Organization', // Change this
+                'Plugin-Description': 'Nextflow plugin to observe task states and send them via gRPC.' // Change this
+        )
+    }
+}
+
+// Optional: If you want to create a fat JAR (not usually needed for Nextflow plugins
+// as Nextflow manages dependencies, but can be useful for standalone testing)
+// tasks.withType(Jar) {
+//     duplicatesStrategy = DuplicatesStrategy.EXCLUDE // or INCLUDE, depending on needs
+//     from { configurations.runtimeClasspath.collect { it.isDirectory() ? it : zipTree(it) } }
+// }
+
+// Ensure Java/Groovy compatibility
+java {
+    sourceCompatibility = JavaVersion.VERSION_11
+    targetCompatibility = JavaVersion.VERSION_11
+}
+tasks.withType(GroovyCompile).configureEach {
+    groovyOptions.configurationScript = file("config/groovy/compiler.groovy") // Optional advanced config
+    options.encoding = 'UTF-8'
+}
+// compileTestGroovy.dependsOn classes // Removing this as explicit source set addition should be better
+
+test {
+    useJUnitPlatform() // For Spock 2.x
+    testLogging {
+        events "passed", "skipped", "failed"
+    }
+}
