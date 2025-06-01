@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.env
+.venv
+
+# Java/Groovy/Gradle
+*.class
+*.jar
+*.war
+*.ear
+.gradle/
+build/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Protobuf
+*.pb.go
+*.pb.py
+*.pb.cc
+*.pb.h
+
+# External
+external/**/.git
+
+# Misc
+*.log
