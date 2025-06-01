@@ -29,7 +29,12 @@ external/**/.git
 # Misc
 *.log
 
-#nextflow 
+# Nextflow
 .nextflow/
 work/
+.nextflow.log
 
+# Other things you might want to ignore globally
+__pycache__/
+*.pyc
+.DS_Store
