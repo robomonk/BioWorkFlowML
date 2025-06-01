@@ -37,13 +37,14 @@ dependencies {
     implementation "com.google.protobuf:protobuf-java-util:${protobufVersion}" // For JsonFormat, etc.
 
     // Groovy
-    implementation platform("org.apache.groovy:groovy-bom:4.0.15") // Groovy BOM
-    implementation "org.apache.groovy:groovy"
+    implementation platform("org.codehaus.groovy:groovy-bom:3.0.19") // Groovy BOM for Nextflow compatibility
+    implementation "org.codehaus.groovy:groovy"
 
     // Testing dependencies (add later when writing tests)
-    // testImplementation "org.spockframework:spock-core:2.3-groovy-4.0"
-    // testImplementation "cglib:cglib-nodep:3.3.0" // Spock needs this
-    // testImplementation "org.objenesis:objenesis:3.3" // Spock needs this
+    testImplementation "org.spockframework:spock-core:2.3-groovy-3.0" // Matched to Groovy 3.x
+    testImplementation "cglib:cglib-nodep:3.3.0" // Spock needs this
+    testImplementation "org.objenesis:objenesis:3.3" // Spock needs this
+    testImplementation "org.pf4j:pf4j:${pf4jVersion}" // PF4J for tests
 }
 
 protobuf {
@@ -71,6 +72,16 @@ protobuf {
 // Ensure Groovy compilation happens after Protobuf generation
 compileGroovy.dependsOn generateProto
 
+// Explicitly add generated sources to main java source set
+sourceSets {
+    main {
+        java {
+            srcDir "$buildDir/generated/source/proto/main/java"
+            srcDir "$buildDir/generated/source/proto/main/grpc"
+        }
+    }
+}
+
 // Configure the JAR manifest for the plugin
 jar {
     manifest {
@@ -93,10 +104,18 @@ jar {
 
 // Ensure Java/Groovy compatibility
 java {
-    sourceCompatibility = JavaVersion.VERSION_1_8
-    targetCompatibility = JavaVersion.VERSION_1_8
+    sourceCompatibility = JavaVersion.VERSION_11
+    targetCompatibility = JavaVersion.VERSION_11
 }
 tasks.withType(GroovyCompile).configureEach {
     groovyOptions.configurationScript = file("config/groovy/compiler.groovy") // Optional advanced config
     options.encoding = 'UTF-8'
+}
+// compileTestGroovy.dependsOn classes // Removing this as explicit source set addition should be better
+
+test {
+    useJUnitPlatform() // For Spock 2.x
+    testLogging {
+        events "passed", "skipped", "failed"
+    }
 }
