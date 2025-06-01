@@ -4,14 +4,7 @@ import datetime
 
 # Import the generated classes
 import sys
-import os
-# Ensure the generated protobuf modules can be imported regardless of the
-# current working directory.  Compute the path to the ``proto`` directory
-# relative to this file and add it to ``sys.path`` only if it's not already
-# present.
-proto_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'proto'))
-if proto_dir not in sys.path:
-    sys.path.insert(0, proto_dir)
+sys.path.append('../proto') # Add proto folder to Python path
 import nf_ai_comms_pb2
 import nf_ai_comms_pb2_grpc
 

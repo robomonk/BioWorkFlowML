@@ -2,12 +2,7 @@ import grpc
 
 # Import the generated classes
 import sys
-import os
-# Add the generated protobuf modules relative to this file so that the client
-# can be executed from any location.
-proto_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'proto'))
-if proto_dir not in sys.path:
-    sys.path.insert(0, proto_dir)
+sys.path.append('../proto')  # Add proto folder to Python path
 import dummy_pb2
 import dummy_pb2_grpc
 
