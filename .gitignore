@@ -4,6 +4,7 @@ __pycache__/
 *.egg-info/
 .env
 .venv
+*.pyc
 
 # Java/Groovy/Gradle
 *.class
@@ -32,9 +33,5 @@ external/**/.git
 # Nextflow
 .nextflow/
 work/
-.nextflow.log
-
-# Other things you might want to ignore globally
-__pycache__/
-*.pyc
-.DS_Store
+.nextflow.log.*
+logs/
