@@ -116,28 +116,73 @@ The `nf_client.py` provides a function to send `TaskObservation` messages to the
     *Note: The `send_task_observation` function provides default values for `event_id` (a new UUID) and `event_type` ("") if they are not present in the dictionary. It also attempts to convert numeric types, but it's best to provide them in the correct format (e.g., integers for byte counts, strings for percentages like "cpu_percent").*
 
 
-3.  **Call the function:**
-    Specify the server address if it's not the default `localhost:50052`.
+3.  **Call the function (Asynchronously):**
+    The `send_task_observation` function now returns a `grpc.Future` object. This allows for non-blocking calls.
     ```python
     ai_server_address = 'localhost:50052' # Or your configured AI server address
-    action_response = send_task_observation(observation_data, server_address=ai_server_address)
+    future = send_task_observation(observation_data, server_address=ai_server_address)
+    print(f"Task observation sent, future received: {future}")
     ```
 
-4.  **Process the response:**
-    The `action_response` will be an `Action` protobuf message object (or `None` if the RPC call failed).
-    ```python
-    if action_response:
-        print(f"Received action: ID={action_response.action_id}, Success={action_response.success}")
-        print(f"Details: {action_response.action_details}")
-        print(f"Correlated Event ID: {action_response.observation_event_id}")
-        # ... use the action_response fields as needed ...
-    else:
-        print("Failed to get a response from the AI server.")
-    ```
+4.  **Process the response (Handling the Future):**
+    You need to handle the `grpc.Future` object to get the actual `Action` response. This is typically done in one of two ways:
+
+    *   **a) Using `future.result()` (Blocking for this specific future):**
+        You can wait for a specific future to complete and get its result. This is useful if you need the response before proceeding with a particular piece of logic.
+        ```python
+        import grpc # Required for exception handling
+
+        try:
+            # Wait for the result, with an optional timeout (in seconds)
+            action_response = future.result(timeout=10)
+            if action_response:
+                print(f"Received action: ID={action_response.action_id}, Success={action_response.success}")
+                # ... use the action_response fields as needed ...
+            else:
+                # This case might not happen if future.result() raises an exception on error
+                print("Received no action response (should have raised exception on error).")
+        except grpc.FutureTimeoutError:
+            print(f"Timeout waiting for action response for event {observation_data.get('event_id')}")
+        except grpc.RpcError as e:
+            print(f"RPC error for event {observation_data.get('event_id')}: {e.details()} (code: {e.code()})")
+        except Exception as e:
+            print(f"An unexpected error occurred processing future for event {observation_data.get('event_id')}: {e}")
+        ```
+
+    *   **b) Using a callback function (Non-blocking):**
+        This is a more common pattern for fully asynchronous workflows. The callback function will be invoked when the RPC completes.
+        ```python
+        import grpc # Required for exception types if checked in callback
+
+        def my_callback(future_obj):
+            try:
+                action_response = future_obj.result() # Get the result
+                if action_response:
+                    print(f"[Callback] Received action: ID={action_response.action_id}, Success={action_response.success}")
+                    # ... process action_response ...
+                else:
+                    print("[Callback] No action response received.")
+            except grpc.RpcError as e:
+                print(f"[Callback] RPC error: {e.details()}")
+            except Exception as e:
+                print(f"[Callback] Error in callback: {e}")
+
+        future.add_done_callback(my_callback)
+        # The main program can continue doing other things here.
+        # Ensure the main program stays alive long enough for callbacks to fire.
+        ```
 
 ### Return Value
--   The function returns an `nf_ai_comms_pb2.Action` protobuf message object upon success.
--   Returns `None` if a `grpc.RpcError` occurs during communication. Error details will be printed to `stderr` by the function.
+-   The function returns a `grpc.Future` object. The actual `nf_ai_comms_pb2.Action` protobuf message is obtained by calling `result()` on this future, typically within a callback or a try-except block.
+
+### Important Note on Channel Management
+-   The current `send_task_observation` function creates a new gRPC channel for each call but **does not close it**. In a high-throughput scenario where many observations are sent, this could lead to resource leakage (e.g., too many open file descriptors).
+-   For production use in a Nextflow plugin that sends many observations, consider implementing a more robust channel management strategy:
+    -   Create a single channel when the plugin initializes.
+    -   Pass this channel to `send_task_observation` (this would require modifying the function to accept an optional channel argument).
+    -   Close the channel when the plugin shuts down.
+    -   Alternatively, the `nf_client.py` module could manage a global channel.
+-   This aspect may be refined in future versions of `nf_client.py`.
 
 ### Protocol
 -   Adheres to the service and message definitions in `proto/nf_ai_comms.proto`.

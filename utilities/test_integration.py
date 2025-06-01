@@ -16,6 +16,8 @@ if project_root not in sys.path:
 if proto_dir not in sys.path:
     sys.path.insert(0, proto_dir) # Add proto dir directly
 
+import grpc # For grpc.RpcError and grpc.FutureTimeoutError (though FutureTimeoutError is part of RpcError)
+
 # Now that sys.path is adjusted, we can import from utilities and proto deps should be found
 from utilities.ai_server import AiServer
 from utilities.nf_client import send_task_observation
@@ -25,7 +27,7 @@ TEST_SERVER_PORT = 50059
 TEST_LOG_FILE = "/tmp/test_ai_server.log"
 
 if __name__ == "__main__":
-    print("Starting integration test...")
+    print("Starting integration test for asynchronous client call...")
 
     # Instantiate and start the AI Server
     ai_server = AiServer(port=TEST_SERVER_PORT, log_file=TEST_LOG_FILE)
@@ -34,56 +36,65 @@ if __name__ == "__main__":
     print("AI Server started.")
 
     # Allow server a moment to fully start
-    # Increased sleep time to ensure server is ready, especially in slower CI environments
     time.sleep(2)
 
     # Prepare sample observation data
+    sample_event_id = str(uuid.uuid4())
     sample_observation_data = {
-        "event_id": str(uuid.uuid4()),
-        "event_type": "test_event_from_integration_script",
+        "event_id": sample_event_id,
+        "event_type": "test_event_from_async_integration_script",
         "timestamp_iso": datetime.datetime.utcnow().isoformat() + "Z",
-        "pipeline_name": "integration_test_pipeline",
-        "process_name": "integration_test_process",
-        "task_id_num": "777", # Sending as string, client should handle conversion
-        "status": "TESTING",
+        "pipeline_name": "async_integration_test_pipeline",
+        "process_name": "async_integration_test_process",
+        "task_id_num": "888",
+        "status": "TESTING_ASYNC",
     }
 
-    print(f"Sending task observation (event_id={sample_observation_data['event_id']}) to localhost:{TEST_SERVER_PORT}")
-    action_response = None
+    print(f"Calling send_task_observation (event_id={sample_event_id}) to localhost:{TEST_SERVER_PORT}...")
+    response_future = None
     test_success = False
     try:
-        action_response = send_task_observation(
+        response_future = send_task_observation(
             sample_observation_data,
             server_address=f'localhost:{TEST_SERVER_PORT}'
         )
 
-        if action_response:
-            print(f"Received action: ID={action_response.action_id}, Success={action_response.success}")
-            print(f"Details: {action_response.action_details}")
-            print(f"Correlated Event ID: {action_response.observation_event_id}")
+        print("Future object received. Waiting for result with timeout (10s)...")
+        # Block on the future to get the result for assertions.
+        action_response = response_future.result(timeout=10)
 
-            assert action_response.success, "Action response success was not True!"
-            assert action_response.observation_event_id == sample_observation_data["event_id"], \
-                f"Observation event ID mismatch! Expected {sample_observation_data['event_id']}, Got {action_response.observation_event_id}"
+        assert action_response is not None, "Client did not receive a response (action_response is None)."
 
-            print("Client received valid and successful response.")
-            test_success = True
-        else:
-            print("Client did not receive a response.")
-            # This case will lead to test_success remaining False
+        print(f"Received action: ID={action_response.action_id}, Success={action_response.success}")
+        print(f"Details: {action_response.action_details}")
+        print(f"Correlated Event ID: {action_response.observation_event_id}")
 
-        if test_success:
+        assert action_response.success, "Action response success was not True!"
+        assert action_response.observation_event_id == sample_event_id, \
+            f"Observation event ID mismatch! Expected {sample_event_id}, Got {action_response.observation_event_id}"
+
+        print("Client received valid and successful response from future.")
+        test_success = True
+
+        if test_success: # Should be true if assertions passed
             print("Integration test successful!")
         else:
-            # This else is important if action_response was None
-            print("Integration test failed: Client did not receive a valid response or assertions failed.")
+            # This path should ideally not be hit if assertions raise errors,
+            # but kept for logical completeness if an assertion failure didn't stop execution.
+            print("Integration test failed: Assertions did not pass or response was invalid.")
 
-
-    except Exception as e:
-        print(f"Integration test failed with exception: {e}")
+    except grpc.FutureTimeoutError:
+        print("Integration test failed: Timeout waiting for future result.")
         test_success = False
-        # Optionally re-raise if needed, but for now, let it proceed to finally
-        # raise
+    except grpc.RpcError as e:
+        print(f"Integration test failed: RPC error: {e.code()} - {e.details()}")
+        test_success = False
+    except AssertionError as ae:
+        print(f"Integration test failed: Assertion Error: {ae}")
+        test_success = False
+    except Exception as e:
+        print(f"Integration test failed with unexpected exception: {type(e).__name__} - {e}")
+        test_success = False
 
     finally:
         print("Stopping AI Server...")

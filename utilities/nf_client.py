@@ -9,17 +9,20 @@ import nf_ai_comms_pb2_grpc
 
 def send_task_observation(observation_data, server_address='localhost:50052'):
     """
-    Sends a TaskObservation to the AiActionService and returns the Action response.
+    Sends a TaskObservation to the AiActionService asynchronously and returns a future.
 
     Args:
         observation_data (dict): A dictionary containing the data for the TaskObservation.
         server_address (str): The address (host:port) of the gRPC server.
 
     Returns:
-        nf_ai_comms_pb2.Action: The Action message response from the server.
-                                Returns None if an RPC error occurs.
+        grpc.Future: A future object representing the asynchronous call.
+                     The result of the future will be an nf_ai_comms_pb2.Action message.
+                     The caller is responsible for managing the future (e.g., adding callbacks,
+                     checking for exceptions, waiting for results) and for channel management
+                     if making many calls (this function creates a channel per call but does not close it).
     """
-    channel = grpc.insecure_channel(server_address)
+    channel = grpc.insecure_channel(server_address) # Channel created per call
     stub = nf_ai_comms_pb2_grpc.AiActionServiceStub(channel)
 
     request = nf_ai_comms_pb2.TaskObservation()
@@ -82,44 +85,61 @@ def send_task_observation(observation_data, server_address='localhost:50052'):
     # request.script_id = observation_data.get("script_id", "")
     # request.script_hash = observation_data.get("script_hash", "")
 
-    print(f"Sending TaskObservation (event_id={request.event_id}, event_type='{request.event_type}') to {server_address}...")
-
-    try:
-        action_response = stub.SendTaskObservation(request)
-        return action_response
-    except grpc.RpcError as e:
-        print(f"gRPC call to {server_address} failed: {e.details()} (code: {e.code()})")
-        return None
-    finally:
-        if channel:
-            channel.close()
+    # Make the non-blocking (asynchronous) call
+    future = stub.SendTaskObservation.future(request)
+    return future
 
 if __name__ == '__main__':
+    # This main block demonstrates how to use the asynchronous client.
+    # It shows how to get the result from the future.
+
     # Prepare sample observation data
     sample_observation_data = {
         "event_id": str(uuid.uuid4()),
-        "event_type": "task_complete",
+        "event_type": "task_complete_async_test",
         "timestamp_iso": datetime.datetime.utcnow().isoformat() + "Z",
-        "pipeline_name": "MainAnalysisPipeline",
-        "process_name": "AlignmentProcess",
-        "task_id_num": "98765", # Example as string, will be converted
-        "task_hash": "fedcba654321",
-        "task_name": "AlignReads (SampleX)",
-        "native_id": "native_002",
-        "status": "COMPLETED",
-        "exit_code": "0", # Example as string
-        "duration_ms": "123450" # Example as string
+        "pipeline_name": "MainAsyncPipeline",
+        "process_name": "AsyncTestProcess",
+        "task_id_num": "11223",
+        "task_hash": "asyncfedcba",
+        "task_name": "AsyncProcess (Test)",
+        "native_id": "native_async_001",
+        "status": "TESTING_ASYNC",
+        "exit_code": "0",
+        "duration_ms": "100"
     }
 
-    print("Running nf_client standalone test...")
-    action = send_task_observation(sample_observation_data)
+    print("Running nf_client standalone async test...")
+    print(f"Sending async TaskObservation (event_id={sample_observation_data['event_id']})")
 
-    if action:
-        print("\nReceived Action Details:")
-        print(f"  Action ID: {action.action_id}")
-        print(f"  Correlates to Event ID: {action.observation_event_id}")
-        print(f"  Success: {action.success}")
-        print(f"  Message: '{action.message}'")
-        print(f"  Details: '{action.action_details}'")
-    else:
-        print("Failed to receive action from server.")
+    # The future is returned immediately
+    response_future = send_task_observation(sample_observation_data)
+
+    print("Future object received. Waiting for result...")
+
+    # To get the result, call result() on the future. This blocks until the RPC is complete.
+    # A timeout can be provided.
+    try:
+        action_response = response_future.result(timeout=10) # Wait up to 10 seconds
+
+        if action_response:
+            print("\nReceived Action Details from Future:")
+            print(f"  Action ID: {action_response.action_id}")
+            print(f"  Correlates to Event ID: {action_response.observation_event_id}")
+            print(f"  Success: {action_response.success}")
+            print(f"  Message: '{action_response.message}'")
+            print(f"  Details: '{action_response.action_details}'")
+        else:
+            # This case should ideally not be reached if result() doesn't raise an exception
+            print("Failed to receive action from server (future result was None).")
+
+    except grpc.RpcError as e:
+        print(f"gRPC call failed: {e.details()} (code: {e.code()})")
+    except Exception as e:
+        # Catches other exceptions like timeout from future.result()
+        print(f"An error occurred while waiting for future result: {e}")
+
+    # Note: The channel used by the future is not explicitly closed here.
+    # In a real application, if many calls are made, channel management is important.
+    # For a single call like in this test, it's less critical as the program exits.
+    print("Standalone async test finished.")
