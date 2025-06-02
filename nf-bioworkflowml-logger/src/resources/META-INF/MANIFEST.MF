@@ -1,0 +1,5 @@
+Manifest-Version: 1.0
+Plugin-Class: com.yourorg.bioflowml.plugin.BioWorkflowMLLoggerPlugin
+Plugin-Id: bioworkflowml-logger
+Plugin-Provider: AI-Agent-Jules
+Plugin-Version: 0.1.0
